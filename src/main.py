@@ -1,8 +1,10 @@
 import requests
 from time import sleep
+from bs4 import BeautifulSoup
 
 request_interval = 3600  # seconds
-url = "https://api.session-search.prod.ielts.com/v2/sessions/search"
+url1 = "https://api.session-search.prod.ielts.com/v2/sessions/search"
+url2 = "https://irsafam.org/ielts/timetable?city%5B%5D=tehran&model%5B%5D=cdielts&month%5B%5D=08"
 payload = {
     "dayOfPaperTest": 0,
     "languageSkills": ["L", "R", "W"],
@@ -23,13 +25,38 @@ payload = {
 
 def fetch_available_sessions():
     try:
-        response = requests.post(url, json=payload)
+        response = requests.post(url1, json=payload)
         response.raise_for_status()
         data = response.json()
         sessions = data.get("items", [])
         return sessions
     except:
         raise Exception(f"Error fetching data: {response.status_code}")
+
+
+def fetch_available_sessions_from_irsafam():
+    try:
+        response = requests.get(url2)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        main_element = soup.find("main")
+        msg = ""
+        if main_element:
+            main_text = main_element.get_text(strip=True)
+            if (
+                "بر اساس جستجوی شما هیچ آزمونی پیدا نشد. لطفا جستجوی انجام شده خود را اصلاح نمایید."
+                in main_text
+            ):
+                msg += "\nNo sessions found in IRSAFAM HTML response."
+            else:
+                msg += "\nSomething's Up!!!!"
+        else:
+            msg += "\nNo <main> element found in HTML response."
+        return msg
+    except Exception as e:
+        raise Exception(
+            f"Error fetching data from irsafam: {response.status_code} \n {e}"
+        )
 
 
 def prepare_msg_from_sessions(sessions):
@@ -68,15 +95,18 @@ def notify_user(msg):
 
 def main():
     while True:
-        msg = ""
+        msg1 = ""
+        msg2 = ""
         try:
             sessions = fetch_available_sessions()
-            msg = prepare_msg_from_sessions(sessions)
+            msg1 = prepare_msg_from_sessions(sessions)
+            msg2 = fetch_available_sessions_from_irsafam()
         except Exception as e:
-            msg = str(e)
+            msg1 = str(e)
         finally:
+            notify_user(msg1)
+            notify_user(msg2)
             sleep(request_interval)
-            notify_user(msg)
 
 
 if __name__ == "__main__":
